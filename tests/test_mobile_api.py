@@ -147,6 +147,29 @@ class MobileAPITestCase(unittest.TestCase):
         payload = json.loads(exc.exception.read().decode("utf-8"))
         self.assertEqual(payload["error"]["code"], "bad_request")
 
+    @mock.patch("mobile_api.perform_upstream_search")
+    def test_search_preserves_zero_score(self, perform_upstream_search: mock.Mock) -> None:
+        perform_upstream_search.return_value = {
+            "results": [
+                {
+                    "title": "Example",
+                    "snippet": "Zero score should not be dropped",
+                    "score": 0,
+                }
+            ]
+        }
+
+        with self._request(
+            "/api/search",
+            method="POST",
+            payload={"query": "zero score"},
+            token="iphone-secret",
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        self.assertEqual(response.status, HTTPStatus.OK)
+        self.assertEqual(payload["results"][0]["score"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

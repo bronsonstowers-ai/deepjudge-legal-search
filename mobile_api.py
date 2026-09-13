@@ -58,6 +58,10 @@ def _normalize_result(item: Any) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {"text": str(item)}
 
+    score = item.get("score")
+    if score is None:
+        score = item.get("relevance")
+
     normalized = {
         "id": item.get("id") or item.get("document_id") or item.get("slug"),
         "title": item.get("title") or item.get("name"),
@@ -67,7 +71,7 @@ def _normalize_result(item: Any) -> dict[str, Any]:
         or item.get("content")
         or item.get("text"),
         "url": item.get("url") or item.get("link"),
-        "score": item.get("score") or item.get("relevance"),
+        "score": score,
         "source": item.get("source") or item.get("court"),
         "metadata": item.get("metadata"),
     }
@@ -191,6 +195,7 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", self.config.allow_origin)
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Token")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     def do_GET(self) -> None:
@@ -259,6 +264,7 @@ def run_server(host: str, port: int, certfile: str | None = None, keyfile: str |
     server = create_server(host, port)
     if certfile and keyfile:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(certfile=certfile, keyfile=keyfile)
         server.socket = context.wrap_socket(server.socket, server_side=True)
         scheme = "https"
