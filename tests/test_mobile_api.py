@@ -177,6 +177,7 @@ class MobileAPITestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             mobile_api.validate_tls_config(None, "/tmp/key.pem")
         mobile_api.validate_tls_config(None, None)
+        mobile_api.validate_tls_config("/tmp/cert.pem", "/tmp/key.pem")
 
     def test_search_rejects_oversized_request_body(self) -> None:
         with self.assertRaises(error.HTTPError) as exc:
@@ -189,6 +190,18 @@ class MobileAPITestCase(unittest.TestCase):
         self.assertEqual(exc.exception.code, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
         payload = json.loads(exc.exception.read().decode("utf-8"))
         self.assertEqual(payload["error"]["code"], "request_too_large")
+
+    def test_search_rejects_non_object_filters(self) -> None:
+        with self.assertRaises(error.HTTPError) as exc:
+            self._request(
+                "/api/search",
+                method="POST",
+                payload={"query": "Miranda", "filters": ["us"]},
+                token="iphone-secret",
+            )
+        self.assertEqual(exc.exception.code, HTTPStatus.BAD_REQUEST)
+        payload = json.loads(exc.exception.read().decode("utf-8"))
+        self.assertEqual(payload["error"]["code"], "bad_request")
 
     @mock.patch("mobile_api.ssl.SSLContext")
     @mock.patch("mobile_api.create_server")
@@ -217,6 +230,23 @@ class MobileAPITestCase(unittest.TestCase):
             keyfile="/tmp/key.pem",
         )
         fake_context.wrap_socket.assert_called_once_with(original_socket, server_side=True)
+
+    @mock.patch("mobile_api.perform_upstream_search")
+    def test_search_handles_invalid_upstream_response(self, perform_upstream_search: mock.Mock) -> None:
+        perform_upstream_search.side_effect = mobile_api.UpstreamResponseError(
+            "The upstream legal search service returned invalid JSON."
+        )
+
+        with self.assertRaises(error.HTTPError) as exc:
+            self._request(
+                "/api/search",
+                method="POST",
+                payload={"query": "Miranda"},
+                token="iphone-secret",
+            )
+        self.assertEqual(exc.exception.code, HTTPStatus.BAD_GATEWAY)
+        payload = json.loads(exc.exception.read().decode("utf-8"))
+        self.assertEqual(payload["error"]["code"], "upstream_invalid_response")
 
 
 if __name__ == "__main__":

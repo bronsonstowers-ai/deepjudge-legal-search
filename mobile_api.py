@@ -29,6 +29,10 @@ class RequestTooLargeError(ValueError):
     pass
 
 
+class UpstreamResponseError(RuntimeError):
+    pass
+
+
 def load_config() -> APIConfig:
     return APIConfig(
         upstream_url=os.getenv("DEEPJUDGE_SEARCH_URL", DEFAULT_UPSTREAM_URL),
@@ -125,7 +129,10 @@ def perform_upstream_search(config: APIConfig, payload: dict[str, Any]) -> Any:
     with request.urlopen(upstream_request, timeout=config.timeout_seconds) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         body = response.read().decode(charset)
-        return json.loads(body) if body else {}
+        try:
+            return json.loads(body) if body else {}
+        except json.JSONDecodeError as exc:
+            raise UpstreamResponseError("The upstream legal search service returned invalid JSON.") from exc
 
 
 class MobileAPIHandler(BaseHTTPRequestHandler):
@@ -240,6 +247,8 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
                 "top_k": top_k,
             }
             if "filters" in payload:
+                if not isinstance(payload["filters"], dict):
+                    raise ValueError("'filters' must be a JSON object.")
                 upstream_payload["filters"] = payload["filters"]
 
             upstream_response = perform_upstream_search(self.config, upstream_payload)
@@ -251,6 +260,8 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, _error_payload("request_too_large", str(exc)))
         except ValueError as exc:
             self._send_json(HTTPStatus.BAD_REQUEST, _error_payload("bad_request", str(exc)))
+        except UpstreamResponseError as exc:
+            self._send_json(HTTPStatus.BAD_GATEWAY, _error_payload("upstream_invalid_response", str(exc)))
         except RuntimeError as exc:
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, _error_payload("server_error", str(exc)))
         except error.HTTPError:
