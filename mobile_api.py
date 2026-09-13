@@ -12,6 +12,7 @@ from urllib import error, request
 
 
 DEFAULT_UPSTREAM_URL = "https://api.deepjudge.ai/v1/search"
+MAX_REQUEST_BODY_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,10 @@ class APIConfig:
     mobile_api_token: str | None
     allow_origin: str
     timeout_seconds: float
+
+
+class RequestTooLargeError(ValueError):
+    pass
 
 
 def load_config() -> APIConfig:
@@ -156,6 +161,10 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
             length = int(raw_length)
         except ValueError as exc:
             raise ValueError("Content-Length must be a number.") from exc
+        if length > MAX_REQUEST_BODY_BYTES:
+            raise RequestTooLargeError(
+                f"Request body must be {MAX_REQUEST_BODY_BYTES} bytes or smaller."
+            )
 
         body = self.rfile.read(length)
         try:
@@ -238,6 +247,8 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 normalize_search_response(upstream_response, query=query.strip()),
             )
+        except RequestTooLargeError as exc:
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, _error_payload("request_too_large", str(exc)))
         except ValueError as exc:
             self._send_json(HTTPStatus.BAD_REQUEST, _error_payload("bad_request", str(exc)))
         except RuntimeError as exc:
@@ -277,7 +288,8 @@ def run_server(host: str, port: int, certfile: str | None = None, keyfile: str |
     else:
         scheme = "http"
 
-    print(f"DeepJudge mobile API listening on {scheme}://{host}:{port}")
+    bound_host, bound_port = server.server_address[:2]
+    print(f"DeepJudge mobile API listening on {scheme}://{bound_host}:{bound_port}")
     server.serve_forever()
 
 

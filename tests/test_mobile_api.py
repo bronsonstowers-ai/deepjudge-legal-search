@@ -1,4 +1,5 @@
 import json
+import ssl
 import threading
 import unittest
 from http import HTTPStatus
@@ -176,6 +177,46 @@ class MobileAPITestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             mobile_api.validate_tls_config(None, "/tmp/key.pem")
         mobile_api.validate_tls_config(None, None)
+
+    def test_search_rejects_oversized_request_body(self) -> None:
+        with self.assertRaises(error.HTTPError) as exc:
+            self._request(
+                "/api/search",
+                method="POST",
+                payload={"query": "x" * mobile_api.MAX_REQUEST_BODY_BYTES},
+                token="iphone-secret",
+            )
+        self.assertEqual(exc.exception.code, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        payload = json.loads(exc.exception.read().decode("utf-8"))
+        self.assertEqual(payload["error"]["code"], "request_too_large")
+
+    @mock.patch("mobile_api.ssl.SSLContext")
+    @mock.patch("mobile_api.create_server")
+    def test_run_server_requires_tls_1_2_when_https_enabled(
+        self,
+        create_server: mock.Mock,
+        ssl_context_cls: mock.Mock,
+    ) -> None:
+        fake_server = mock.Mock()
+        fake_server.server_address = ("127.0.0.1", 8443)
+        original_socket = object()
+        fake_server.socket = original_socket
+        fake_server.serve_forever.side_effect = RuntimeError("stop")
+        create_server.return_value = fake_server
+
+        fake_context = mock.Mock()
+        ssl_context_cls.return_value = fake_context
+
+        with self.assertRaises(RuntimeError):
+            mobile_api.run_server("127.0.0.1", 0, certfile="/tmp/cert.pem", keyfile="/tmp/key.pem")
+
+        ssl_context_cls.assert_called_once_with(ssl.PROTOCOL_TLS_SERVER)
+        self.assertEqual(fake_context.minimum_version, ssl.TLSVersion.TLSv1_2)
+        fake_context.load_cert_chain.assert_called_once_with(
+            certfile="/tmp/cert.pem",
+            keyfile="/tmp/key.pem",
+        )
+        fake_context.wrap_socket.assert_called_once_with(original_socket, server_side=True)
 
 
 if __name__ == "__main__":
