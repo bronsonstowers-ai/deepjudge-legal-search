@@ -37,6 +37,8 @@ Request body:
 }
 ```
 
+Supported `filters` keys: `jurisdiction`, `court`, `date_from`, `date_to`, `practice_area`, and `document_type`. Filter values should be strings, numbers, booleans, or flat lists of those values.
+
 Response body:
 
 ```json

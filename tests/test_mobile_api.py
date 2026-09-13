@@ -148,6 +148,18 @@ class MobileAPITestCase(unittest.TestCase):
         payload = json.loads(exc.exception.read().decode("utf-8"))
         self.assertEqual(payload["error"]["code"], "bad_request")
 
+    def test_search_rejects_boolean_top_k(self) -> None:
+        with self.assertRaises(error.HTTPError) as exc:
+            self._request(
+                "/api/search",
+                method="POST",
+                payload={"query": "Miranda", "top_k": True},
+                token="iphone-secret",
+            )
+        self.assertEqual(exc.exception.code, HTTPStatus.BAD_REQUEST)
+        payload = json.loads(exc.exception.read().decode("utf-8"))
+        self.assertEqual(payload["error"]["code"], "bad_request")
+
     @mock.patch("mobile_api.perform_upstream_search")
     def test_search_preserves_zero_score(self, perform_upstream_search: mock.Mock) -> None:
         perform_upstream_search.return_value = {
@@ -203,6 +215,18 @@ class MobileAPITestCase(unittest.TestCase):
         payload = json.loads(exc.exception.read().decode("utf-8"))
         self.assertEqual(payload["error"]["code"], "bad_request")
 
+    def test_search_rejects_unsupported_filter_keys(self) -> None:
+        with self.assertRaises(error.HTTPError) as exc:
+            self._request(
+                "/api/search",
+                method="POST",
+                payload={"query": "Miranda", "filters": {"unsupported": "value"}},
+                token="iphone-secret",
+            )
+        self.assertEqual(exc.exception.code, HTTPStatus.BAD_REQUEST)
+        payload = json.loads(exc.exception.read().decode("utf-8"))
+        self.assertEqual(payload["error"]["code"], "bad_request")
+
     @mock.patch("mobile_api.ssl.SSLContext")
     @mock.patch("mobile_api.create_server")
     def test_run_server_requires_tls_1_2_when_https_enabled(
@@ -230,6 +254,7 @@ class MobileAPITestCase(unittest.TestCase):
             keyfile="/tmp/key.pem",
         )
         fake_context.wrap_socket.assert_called_once_with(original_socket, server_side=True)
+        fake_server.server_close.assert_called_once()
 
     @mock.patch("mobile_api.perform_upstream_search")
     def test_search_handles_invalid_upstream_response(self, perform_upstream_search: mock.Mock) -> None:

@@ -13,6 +13,14 @@ from urllib import error, request
 
 DEFAULT_UPSTREAM_URL = "https://api.deepjudge.ai/v1/search"
 MAX_REQUEST_BODY_BYTES = 64 * 1024
+ALLOWED_FILTER_FIELDS = {
+    "jurisdiction",
+    "court",
+    "date_from",
+    "date_to",
+    "practice_area",
+    "document_type",
+}
 
 
 @dataclass(frozen=True)
@@ -31,6 +39,29 @@ class RequestTooLargeError(ValueError):
 
 class UpstreamResponseError(RuntimeError):
     pass
+
+
+def _is_valid_filter_value(value: Any) -> bool:
+    if isinstance(value, (str, int, float, bool)):
+        return True
+    if isinstance(value, list):
+        return all(isinstance(item, (str, int, float, bool)) for item in value)
+    return False
+
+
+def validate_filters(filters: dict[str, Any]) -> dict[str, Any]:
+    invalid_keys = sorted(set(filters) - ALLOWED_FILTER_FIELDS)
+    if invalid_keys:
+        raise ValueError(
+            "'filters' contains unsupported keys: " + ", ".join(invalid_keys) + "."
+        )
+
+    for key, value in filters.items():
+        if not _is_valid_filter_value(value):
+            raise ValueError(
+                f"'filters.{key}' must be a string, number, boolean, or flat list of those values."
+            )
+    return filters
 
 
 def load_config() -> APIConfig:
@@ -239,7 +270,7 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
                 raise ValueError("'query' must be a non-empty string.")
 
             top_k = payload.get("top_k", 5)
-            if not isinstance(top_k, int) or not 1 <= top_k <= 20:
+            if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 20:
                 raise ValueError("'top_k' must be an integer between 1 and 20.")
 
             upstream_payload = {
@@ -249,7 +280,7 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
             if "filters" in payload:
                 if not isinstance(payload["filters"], dict):
                     raise ValueError("'filters' must be a JSON object.")
-                upstream_payload["filters"] = payload["filters"]
+                upstream_payload["filters"] = validate_filters(payload["filters"])
 
             upstream_response = perform_upstream_search(self.config, upstream_payload)
             self._send_json(
@@ -290,18 +321,21 @@ def validate_tls_config(certfile: str | None, keyfile: str | None) -> None:
 def run_server(host: str, port: int, certfile: str | None = None, keyfile: str | None = None) -> None:
     validate_tls_config(certfile, keyfile)
     server = create_server(host, port)
-    if certfile and keyfile:
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-        context.load_cert_chain(certfile=certfile, keyfile=keyfile)
-        server.socket = context.wrap_socket(server.socket, server_side=True)
-        scheme = "https"
-    else:
-        scheme = "http"
+    try:
+        if certfile and keyfile:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.load_cert_chain(certfile=certfile, keyfile=keyfile)
+            server.socket = context.wrap_socket(server.socket, server_side=True)
+            scheme = "https"
+        else:
+            scheme = "http"
 
-    bound_host, bound_port = server.server_address[:2]
-    print(f"DeepJudge mobile API listening on {scheme}://{bound_host}:{bound_port}")
-    server.serve_forever()
+        bound_host, bound_port = server.server_address[:2]
+        print(f"DeepJudge mobile API listening on {scheme}://{bound_host}:{bound_port}")
+        server.serve_forever()
+    finally:
+        server.server_close()
 
 
 def parse_args() -> argparse.Namespace:
