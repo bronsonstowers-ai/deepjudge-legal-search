@@ -47,6 +47,10 @@ class UpstreamHTTPStatusError(RuntimeError):
         super().__init__(f"Upstream HTTP status: {status_code}")
 
 
+class UpstreamConnectionError(RuntimeError):
+    pass
+
+
 def _is_valid_filter_value(value: Any) -> bool:
     if isinstance(value, (str, int, float, bool)):
         return True
@@ -173,6 +177,8 @@ def perform_upstream_search(config: APIConfig, payload: dict[str, Any]) -> Any:
                 raise UpstreamResponseError("The upstream legal search service returned invalid JSON.") from exc
     except error.HTTPError as exc:
         raise UpstreamHTTPStatusError(exc.code) from exc
+    except error.URLError as exc:
+        raise UpstreamConnectionError("The upstream legal search service could not be reached.") from exc
 
 
 class MobileAPIHandler(BaseHTTPRequestHandler):
@@ -321,13 +327,10 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
                 )
         except UpstreamResponseError as exc:
             self._send_json(HTTPStatus.BAD_GATEWAY, _error_payload("upstream_invalid_response", str(exc)))
+        except UpstreamConnectionError as exc:
+            self._send_json(HTTPStatus.BAD_GATEWAY, _error_payload("upstream_unreachable", str(exc)))
         except RuntimeError as exc:
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, _error_payload("server_error", str(exc)))
-        except error.URLError:
-            self._send_json(
-                HTTPStatus.BAD_GATEWAY,
-                _error_payload("upstream_unreachable", "The upstream legal search service could not be reached."),
-            )
 
 
 def create_server(host: str, port: int, config: APIConfig | None = None) -> ThreadingHTTPServer:

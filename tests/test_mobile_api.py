@@ -315,6 +315,23 @@ class MobileAPITestCase(unittest.TestCase):
         payload = json.loads(exc.exception.read().decode("utf-8"))
         self.assertEqual(payload["error"]["code"], "upstream_rate_limited")
 
+    @mock.patch("mobile_api.perform_upstream_search")
+    def test_search_handles_upstream_unreachable(self, perform_upstream_search: mock.Mock) -> None:
+        perform_upstream_search.side_effect = mobile_api.UpstreamConnectionError(
+            "The upstream legal search service could not be reached."
+        )
+
+        with self.assertRaises(error.HTTPError) as exc:
+            self._request(
+                "/api/search",
+                method="POST",
+                payload={"query": "Miranda"},
+                token="iphone-secret",
+            )
+        self.assertEqual(exc.exception.code, HTTPStatus.BAD_GATEWAY)
+        payload = json.loads(exc.exception.read().decode("utf-8"))
+        self.assertEqual(payload["error"]["code"], "upstream_unreachable")
+
 
 if __name__ == "__main__":
     unittest.main()
