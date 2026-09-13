@@ -41,6 +41,12 @@ class UpstreamResponseError(RuntimeError):
     pass
 
 
+class UpstreamHTTPStatusError(RuntimeError):
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        super().__init__(f"Upstream HTTP status: {status_code}")
+
+
 def _is_valid_filter_value(value: Any) -> bool:
     if isinstance(value, (str, int, float, bool)):
         return True
@@ -157,13 +163,16 @@ def perform_upstream_search(config: APIConfig, payload: dict[str, Any]) -> Any:
         headers=headers,
         method="POST",
     )
-    with request.urlopen(upstream_request, timeout=config.timeout_seconds) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        body = response.read().decode(charset)
-        try:
-            return json.loads(body) if body else {}
-        except json.JSONDecodeError as exc:
-            raise UpstreamResponseError("The upstream legal search service returned invalid JSON.") from exc
+    try:
+        with request.urlopen(upstream_request, timeout=config.timeout_seconds) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            body = response.read().decode(charset)
+            try:
+                return json.loads(body) if body else {}
+            except json.JSONDecodeError as exc:
+                raise UpstreamResponseError("The upstream legal search service returned invalid JSON.") from exc
+    except error.HTTPError as exc:
+        raise UpstreamHTTPStatusError(exc.code) from exc
 
 
 class MobileAPIHandler(BaseHTTPRequestHandler):
@@ -199,6 +208,8 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
             length = int(raw_length)
         except ValueError as exc:
             raise ValueError("Content-Length must be a number.") from exc
+        if length < 0:
+            raise ValueError("Content-Length must be zero or greater.")
         if length > MAX_REQUEST_BODY_BYTES:
             raise RequestTooLargeError(
                 f"Request body must be {MAX_REQUEST_BODY_BYTES} bytes or smaller."
@@ -291,15 +302,27 @@ class MobileAPIHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, _error_payload("request_too_large", str(exc)))
         except ValueError as exc:
             self._send_json(HTTPStatus.BAD_REQUEST, _error_payload("bad_request", str(exc)))
+        except UpstreamHTTPStatusError as exc:
+            if exc.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
+                self._send_json(
+                    HTTPStatus.BAD_GATEWAY,
+                    _error_payload("upstream_auth_error", "The upstream legal search service rejected the server credentials."),
+                )
+            elif exc.status_code == HTTPStatus.TOO_MANY_REQUESTS:
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    _error_payload("upstream_rate_limited", "The upstream legal search service is rate limiting requests. Please retry shortly."),
+                    extra_headers={"Retry-After": "30"},
+                )
+            else:
+                self._send_json(
+                    HTTPStatus.BAD_GATEWAY,
+                    _error_payload("upstream_error", "The upstream legal search service returned an error."),
+                )
         except UpstreamResponseError as exc:
             self._send_json(HTTPStatus.BAD_GATEWAY, _error_payload("upstream_invalid_response", str(exc)))
         except RuntimeError as exc:
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, _error_payload("server_error", str(exc)))
-        except error.HTTPError:
-            self._send_json(
-                HTTPStatus.BAD_GATEWAY,
-                _error_payload("upstream_error", "The upstream legal search service returned an error."),
-            )
         except error.URLError:
             self._send_json(
                 HTTPStatus.BAD_GATEWAY,

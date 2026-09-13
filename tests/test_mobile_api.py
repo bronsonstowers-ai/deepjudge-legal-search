@@ -1,4 +1,5 @@
 import json
+import socket
 import ssl
 import threading
 import unittest
@@ -203,6 +204,32 @@ class MobileAPITestCase(unittest.TestCase):
         payload = json.loads(exc.exception.read().decode("utf-8"))
         self.assertEqual(payload["error"]["code"], "request_too_large")
 
+    def test_search_rejects_negative_content_length(self) -> None:
+        host, port = self.server.server_address
+        with socket.create_connection((host, port), timeout=5) as sock:
+            sock.sendall(
+                (
+                    "POST /api/search HTTP/1.1\r\n"
+                    f"Host: {host}:{port}\r\n"
+                    "X-API-Token: iphone-secret\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Content-Length: -1\r\n"
+                    "\r\n"
+                    "{}"
+                ).encode("utf-8")
+            )
+            sock.shutdown(socket.SHUT_WR)
+            chunks = []
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            response = b"".join(chunks).decode("utf-8")
+
+        self.assertIn("400 Bad Request", response)
+        self.assertIn('"code": "bad_request"', response)
+
     def test_search_rejects_non_object_filters(self) -> None:
         with self.assertRaises(error.HTTPError) as exc:
             self._request(
@@ -272,6 +299,21 @@ class MobileAPITestCase(unittest.TestCase):
         self.assertEqual(exc.exception.code, HTTPStatus.BAD_GATEWAY)
         payload = json.loads(exc.exception.read().decode("utf-8"))
         self.assertEqual(payload["error"]["code"], "upstream_invalid_response")
+
+    @mock.patch("mobile_api.perform_upstream_search")
+    def test_search_handles_upstream_rate_limit(self, perform_upstream_search: mock.Mock) -> None:
+        perform_upstream_search.side_effect = mobile_api.UpstreamHTTPStatusError(HTTPStatus.TOO_MANY_REQUESTS)
+
+        with self.assertRaises(error.HTTPError) as exc:
+            self._request(
+                "/api/search",
+                method="POST",
+                payload={"query": "Miranda"},
+                token="iphone-secret",
+            )
+        self.assertEqual(exc.exception.code, HTTPStatus.SERVICE_UNAVAILABLE)
+        payload = json.loads(exc.exception.read().decode("utf-8"))
+        self.assertEqual(payload["error"]["code"], "upstream_rate_limited")
 
 
 if __name__ == "__main__":
