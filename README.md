@@ -170,11 +170,11 @@ URLSession.shared.dataTask(with: request) { data, response, error in
 If you already have stronger auth infrastructure, place this endpoint behind it. Otherwise:
 
 - set a long random `MOBILE_API_TOKEN`
-- send it as a bearer token from the iPhone app
+- send it in the `X-API-Token` header from the iPhone app
 - rotate it if a device is lost
 - keep the real `DEEPJUDGE_API_KEY` on the server only
 
-This gives you a lightweight, mobile-friendly setup without exposing upstream credentials to the app.
+This gives you a lightweight, mobile-friendly setup without exposing upstream credentials to the app. The server also accepts bearer tokens if you prefer that style.
 
 ## Tests
 

@@ -170,6 +170,13 @@ class MobileAPITestCase(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.OK)
         self.assertEqual(payload["results"][0]["score"], 0)
 
+    def test_validate_tls_config_rejects_partial_configuration(self) -> None:
+        with self.assertRaises(ValueError):
+            mobile_api.validate_tls_config("/tmp/cert.pem", None)
+        with self.assertRaises(ValueError):
+            mobile_api.validate_tls_config(None, "/tmp/key.pem")
+        mobile_api.validate_tls_config(None, None)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -260,7 +260,13 @@ def create_server(host: str, port: int, config: APIConfig | None = None) -> Thre
     return server
 
 
+def validate_tls_config(certfile: str | None, keyfile: str | None) -> None:
+    if bool(certfile) != bool(keyfile):
+        raise ValueError("TLS requires both --certfile and --keyfile.")
+
+
 def run_server(host: str, port: int, certfile: str | None = None, keyfile: str | None = None) -> None:
+    validate_tls_config(certfile, keyfile)
     server = create_server(host, port)
     if certfile and keyfile:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
