@@ -8,6 +8,8 @@ Small, secure HTTPS-ready JSON backend for DeepJudge legal search, designed for 
 python -m pip install .
 ```
 
+This installs the `deepjudge-legal-search` package and the `deepjudge-mobile-api` command.
+
 After installing, run the server with:
 
 ```bash
