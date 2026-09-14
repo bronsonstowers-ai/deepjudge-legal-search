@@ -2,6 +2,18 @@
 
 Small, secure HTTPS-ready JSON backend for DeepJudge legal search, designed for iPhone apps, Apple Shortcuts, and other mobile clients.
 
+## Install
+
+```bash
+python -m pip install .
+```
+
+After installing, run the server with:
+
+```bash
+deepjudge-mobile-api --host 0.0.0.0 --port 8000
+```
+
 ## Why this repo now works well for iPhone apps
 
 - Your DeepJudge/API key stays on the server.
@@ -77,17 +89,19 @@ Set these environment variables before starting the server:
 HTTP for local development:
 
 ```bash
+python -m pip install .
 export DEEPJUDGE_API_KEY=your-server-side-key
 export MOBILE_API_TOKEN=choose-a-long-random-token
-python mobile_api.py --host 0.0.0.0 --port 8000
+deepjudge-mobile-api --host 0.0.0.0 --port 8000
 ```
 
 Direct HTTPS with your own certificate:
 
 ```bash
+python -m pip install .
 export DEEPJUDGE_API_KEY=your-server-side-key
 export MOBILE_API_TOKEN=choose-a-long-random-token
-python mobile_api.py --host 0.0.0.0 --port 8443 --certfile /path/to/fullchain.pem --keyfile /path/to/privkey.pem
+deepjudge-mobile-api --host 0.0.0.0 --port 8443 --certfile /path/to/fullchain.pem --keyfile /path/to/privkey.pem
 ```
 
 For production, the simplest option is to deploy this behind HTTPS on a small VPS, Fly.io, Render, Railway, Cloud Run, or behind Nginx/Caddy.
