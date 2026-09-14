@@ -1,0 +1,2 @@
+[console_scripts]
+deepjudge-mobile-api = mobile_api:main
