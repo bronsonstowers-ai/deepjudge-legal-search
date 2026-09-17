@@ -2,19 +2,51 @@
 
 Small, secure HTTPS-ready JSON backend for DeepJudge legal search, designed for iPhone apps, Apple Shortcuts, and other mobile clients.
 
-## Why this repo now works well for iPhone apps
+## What is included
 
 - Your DeepJudge/API key stays on the server.
-- The phone only talks to a small JSON API: `POST /api/search`.
+- The phone only talks to `POST /api/search`.
 - Responses are normalized into clean iPhone-friendly fields like `title`, `text`, `url`, and `score`.
-- Optional bearer-token auth gives you a lightweight way to protect the endpoint.
+- Optional bearer-token auth protects the endpoint.
+- Docker deployment files are included.
 - The server can run behind any HTTPS host, or directly with a TLS cert/key.
+
+## Deploy it
+
+This repository includes `Dockerfile`, `.dockerignore`, `requirements.txt`, and `.env.example` so it can be deployed to a container-capable host.
+
+Set these server-side environment variables in your hosting provider:
+
+- `DEEPJUDGE_API_KEY` **required for search**
+- `MOBILE_API_TOKEN` **strongly recommended**; use a long random value
+- `DEEPJUDGE_SEARCH_URL` optional, defaults to `https://api.deepjudge.ai/v1/search`
+- `DEEPJUDGE_API_KEY_HEADER` optional, defaults to `Authorization`
+- `MOBILE_API_ALLOW_ORIGIN` optional, defaults to `*`
+- `DEEPJUDGE_TIMEOUT_SECONDS` optional, defaults to `30`
+- `PORT` optional, defaults to `8000`
+
+Do not commit `.env` files or real API keys. The Docker ignore rules exclude them.
+
+After deployment, verify:
+
+```text
+GET https://YOUR-DOMAIN/health
+```
+
+Then search with:
+
+```bash
+curl https://YOUR-DOMAIN/api/search \
+  -H "X-API-Token: YOUR-MOBILE-TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"What cases discuss Miranda warnings?","top_k":3}'
+```
 
 ## API endpoints
 
 ### `GET /health`
 
-Returns a simple health check:
+Returns:
 
 ```json
 {
@@ -39,38 +71,7 @@ Request body:
 
 Supported `filters` keys: `jurisdiction`, `court`, `date_from`, `date_to`, `practice_area`, and `document_type`. Filter values should be strings, numbers, booleans, or flat lists of those values.
 
-Response body:
-
-```json
-{
-  "ok": true,
-  "query": "what cases discuss Miranda warnings?",
-  "result_count": 1,
-  "request_id": "req_123",
-  "results": [
-    {
-      "id": "doc-1",
-      "title": "Miranda v. Arizona",
-      "text": "Key holding summary...",
-      "url": "https://example.com/cases/miranda",
-      "score": 0.98,
-      "source": "Supreme Court"
-    }
-  ]
-}
-```
-
-## Configuration
-
-Set these environment variables before starting the server:
-
-- `DEEPJUDGE_API_KEY` **required for search**
-- `DEEPJUDGE_SEARCH_URL` optional, defaults to `https://api.deepjudge.ai/v1/search`
-- `DEEPJUDGE_API_KEY_HEADER` optional, defaults to `Authorization`
-- `MOBILE_API_TOKEN` optional but recommended; if set, clients should send it in the `X-API-Token` request header
-- `MOBILE_API_ALLOW_ORIGIN` optional CORS header, defaults to `*`
-- `DEEPJUDGE_TIMEOUT_SECONDS` optional, defaults to `30`
-- `TLS_CERTFILE` and `TLS_KEYFILE` optional for direct HTTPS
+Response fields include `ok`, `query`, `result_count`, `request_id`, and `results`. Individual results can include `id`, `title`, `text`, `url`, `score`, `source`, and `metadata`.
 
 ## Running locally
 
@@ -82,6 +83,16 @@ export MOBILE_API_TOKEN=choose-a-long-random-token
 python mobile_api.py --host 0.0.0.0 --port 8000
 ```
 
+Or with Docker:
+
+```bash
+docker build -t deepjudge-mobile-api .
+docker run --rm -p 8000:8000 \
+  -e DEEPJUDGE_API_KEY="$DEEPJUDGE_API_KEY" \
+  -e MOBILE_API_TOKEN="$MOBILE_API_TOKEN" \
+  deepjudge-mobile-api
+```
+
 Direct HTTPS with your own certificate:
 
 ```bash
@@ -90,18 +101,9 @@ export MOBILE_API_TOKEN=choose-a-long-random-token
 python mobile_api.py --host 0.0.0.0 --port 8443 --certfile /path/to/fullchain.pem --keyfile /path/to/privkey.pem
 ```
 
-For production, the simplest option is to deploy this behind HTTPS on a small VPS, Fly.io, Render, Railway, Cloud Run, or behind Nginx/Caddy.
+## iPhone / Apple Shortcuts
 
-## Example request from iPhone-compatible clients
-
-`curl`:
-
-```bash
-curl https://your-domain.example/api/search \
-  -H "X-API-Token: your-mobile-token" \
-  -H "Content-Type: application/json" \
-  -d '{"query":"What cases discuss Miranda warnings?","top_k":3}'
-```
+Use your deployed HTTPS URL as the API base. The iPhone app or Shortcut sends `X-API-Token` and never receives the upstream `DEEPJUDGE_API_KEY`.
 
 ### Swift example
 
@@ -131,10 +133,10 @@ struct SearchResponse: Decodable {
     }
 }
 
-let url = URL(string: "https://your-domain.example/api/search")!
+let url = URL(string: "https://YOUR-DOMAIN/api/search")!
 var request = URLRequest(url: url)
 request.httpMethod = "POST"
-request.setValue("your-mobile-token", forHTTPHeaderField: "X-API-Token")
+request.setValue("YOUR-MOBILE-TOKEN", forHTTPHeaderField: "X-API-Token")
 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 request.httpBody = try JSONSerialization.data(withJSONObject: [
     "query": "What cases discuss Miranda warnings?",
@@ -151,32 +153,19 @@ URLSession.shared.dataTask(with: request) { data, response, error in
 ### Apple Shortcuts flow
 
 1. Add **Get Contents of URL**.
-2. Set URL to `https://your-domain.example/api/search`.
+2. Set the URL to `https://YOUR-DOMAIN/api/search`.
 3. Method: `POST`.
-4. Headers:
-   - `X-API-Token` → `your-mobile-token`
-   - `Content-Type` → `application/json`
-5. JSON body:
-
-```json
-{
-  "query": "What cases discuss Miranda warnings?",
-  "top_k": 3
-}
-```
-
-6. Read `results[0].title` or `results[0].text` in the next Shortcut step.
+4. Headers: `X-API-Token` and `Content-Type: application/json`.
+5. JSON body with `query` and `top_k`.
+6. Read `results[0].title` or `results[0].text`.
 
 ## Authentication guidance
 
-If you already have stronger auth infrastructure, place this endpoint behind it. Otherwise:
-
-- set a long random `MOBILE_API_TOKEN`
-- send it in the `X-API-Token` header from the iPhone app
-- rotate it if a device is lost
-- keep the real `DEEPJUDGE_API_KEY` on the server only
-
-This gives you a lightweight, mobile-friendly setup without exposing upstream credentials to the app. The server also accepts bearer tokens if you prefer that style.
+- Set a long random `MOBILE_API_TOKEN`.
+- Send it in `X-API-Token` from the iPhone app.
+- Rotate it if a device is lost.
+- Keep the real `DEEPJUDGE_API_KEY` on the server only.
+- For production, use your hosting provider's HTTPS endpoint rather than exposing plain HTTP to the internet.
 
 ## Tests
 
